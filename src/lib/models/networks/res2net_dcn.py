@@ -30,6 +30,7 @@ model_urls = {
     'res2net101_26w_4s': 'http://data.kaizhao.net/projects/res2net/pretrained/res2net101_26w_4s-02a759a1.pth',
 }
 
+
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
@@ -39,7 +40,7 @@ def conv3x3(in_planes, out_planes, stride=1):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None,baseWidth=4):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
@@ -71,35 +72,38 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,scale=4,BaseWidth=26):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, scale=4, baseWidth=26,stype='normal'):
         super(Bottleneck, self).__init__()
-        width = int(math.floor(planes * (BaseWidth / 64.0)))
+        width = int(math.floor(planes * (baseWidth / 64.0)))
 
-        self.conv1 = nn.Conv2d(inplanes, width*scale, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(width*scale, momentum=BN_MOMENTUM)
+        self.conv1 = nn.Conv2d(inplanes, width * scale, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(width * scale, momentum=BN_MOMENTUM)
 
-        if scale==1:
-            self.nums=1
+        if scale == 1:
+            self.nums = 1
         else:
-            self.nums=scale-1
-
-        convs=[]
-        bns=[]
+            self.nums = scale - 1
+        if stype == 'stage':
+            self.pool = nn.AvgPool2d(kernel_size=3, stride=stride, padding=1)
+        convs = []
+        bns = []
 
         for i in range(self.nums):
-            convs.append(nn.Conv2d(width,width,kernel_size=3, stride=stride,padding=1, bias=False))
-            bns.append(nn.BatchNorm2d(width,momentum=BN_MOMENTUM))
-        self.convs=nn.ModuleList(convs)
-        self.bns=nn.ModuleList(bns)
+            convs.append(nn.Conv2d(width, width, kernel_size=3, stride=stride, padding=1, bias=False))
+            bns.append(nn.BatchNorm2d(width, momentum=BN_MOMENTUM))
+        self.convs = nn.ModuleList(convs)
+        self.bns = nn.ModuleList(bns)
 
-        self.conv3 = nn.Conv2d(width*scale, planes * self.expansion, kernel_size=1,
+        self.conv3 = nn.Conv2d(width * scale, planes * self.expansion, kernel_size=1,
                                bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion,
                                   momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
-        self.width=width
+        self.width = width
+        self.scale = scale
+        self.stype=stype
 
     def forward(self, x):
         residual = x
@@ -108,20 +112,22 @@ class Bottleneck(nn.Module):
         out = self.bn1(out)
         out = self.relu(out)
 
-        spx=torch.split(out,self.width,1)
+        spx = torch.split(out, self.width, 1)
         for i in range(self.nums):
-            if i==0:
-                sp=spx[i]
+            if i == 0 or self.stype=='stage':
+                sp = spx[i]
             else:
-                sp=sp+sp[i]
-            sp=self.convs[i](sp)
-            sp=self.relu(self.bns[i](sp))
-            if i==0:
-                out=sp
+                sp = sp + spx[i]
+            sp = self.convs[i](sp)
+            sp = self.relu(self.bns[i](sp))
+            if i == 0:
+                out = sp
             else:
-                out=torch.cat((out,sp),1)
-        if self.scale != 1:
+                out = torch.cat((out, sp), 1)
+        if self.scale != 1 and self.stype=='normal':
             out = torch.cat((out, spx[self.nums]), 1)
+        elif self.scale != 1 and self.stype == 'stage':
+            out = torch.cat((out, self.pool(spx[self.nums])), 1)
 
         out = self.conv3(out)
         out = self.bn3(out)
@@ -134,6 +140,7 @@ class Bottleneck(nn.Module):
 
         return out
 
+
 def fill_up_weights(up):
     w = up.weight.data
     f = math.ceil(w.size(2) / 2)
@@ -143,7 +150,8 @@ def fill_up_weights(up):
             w[0, 0, i, j] = \
                 (1 - math.fabs(i / f - c)) * (1 - math.fabs(j / f - c))
     for c in range(1, w.size(0)):
-        w[c, 0, :, :] = w[0, 0, :, :] 
+        w[c, 0, :, :] = w[0, 0, :, :]
+
 
 def fill_fc_weights(layers):
     for m in layers.modules():
@@ -154,9 +162,14 @@ def fill_fc_weights(layers):
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
+
 class PoseResNet(nn.Module):
 
-    def __init__(self, block, layers, heads, head_conv):
+    def __init__(self, block, layers, heads, head_conv,baseWidth=26,scale=4):
+        self.baseWidth=baseWidth
+        self.scale=scale
+
+
         self.inplanes = 64
         self.heads = heads
         self.deconv_with_bias = False
@@ -183,20 +196,20 @@ class PoseResNet(nn.Module):
             classes = self.heads[head]
             if head_conv > 0:
                 fc = nn.Sequential(
-                  nn.Conv2d(64, head_conv,
-                    kernel_size=3, padding=1, bias=True),
-                  nn.ReLU(inplace=True),
-                  nn.Conv2d(head_conv, classes, 
-                    kernel_size=1, stride=1, 
-                    padding=0, bias=True))
+                    nn.Conv2d(64, head_conv,
+                              kernel_size=3, padding=1, bias=True),
+                    nn.ReLU(inplace=True),
+                    nn.Conv2d(head_conv, classes,
+                              kernel_size=1, stride=1,
+                              padding=0, bias=True))
                 if 'hm' in head:
                     fc[-1].bias.data.fill_(-2.19)
                 else:
                     fill_fc_weights(fc)
             else:
-                fc = nn.Conv2d(64, classes, 
-                  kernel_size=1, stride=1, 
-                  padding=0, bias=True)
+                fc = nn.Conv2d(64, classes,
+                               kernel_size=1, stride=1,
+                               padding=0, bias=True)
                 if 'hm' in head:
                     fc.bias.data.fill_(-2.19)
                 else:
@@ -213,7 +226,8 @@ class PoseResNet(nn.Module):
             )
 
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
+        layers.append(block(self.inplanes, planes, stride, downsample, stype='stage', baseWidth=self.baseWidth,
+                            scale=self.scale))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes))
@@ -245,21 +259,21 @@ class PoseResNet(nn.Module):
                 self._get_deconv_cfg(num_kernels[i], i)
 
             planes = num_filters[i]
-            fc = DCN(self.inplanes, planes, 
-                    kernel_size=(3,3), stride=1,
-                    padding=1, dilation=1, deformable_groups=1)
+            fc = DCN(self.inplanes, planes,
+                     kernel_size=(3, 3), stride=1,
+                     padding=1, dilation=1, deformable_groups=1)
             # fc = nn.Conv2d(self.inplanes, planes,
             #         kernel_size=3, stride=1, 
             #         padding=1, dilation=1, bias=False)
             # fill_fc_weights(fc)
             up = nn.ConvTranspose2d(
-                    in_channels=planes,
-                    out_channels=planes,
-                    kernel_size=kernel,
-                    stride=2,
-                    padding=padding,
-                    output_padding=output_padding,
-                    bias=self.deconv_with_bias)
+                in_channels=planes,
+                out_channels=planes,
+                kernel_size=kernel,
+                stride=2,
+                padding=padding,
+                output_padding=output_padding,
+                bias=self.deconv_with_bias)
             fill_up_weights(up)
 
             layers.append(fc)
@@ -289,9 +303,10 @@ class PoseResNet(nn.Module):
             ret[head] = self.__getattr__(head)(x)
         return [ret]
 
-    def init_weights(self, num_layers):
+    def init_weights(self, num_layers,baseWidth=26,scale=4):
+        print(num_layers)
         if 1:
-            url = model_urls['res2net101_26w_4s']
+            url = model_urls['res2net{}_{}w_{}s'.format(num_layers,baseWidth,scale)]
             pretrained_state_dict = model_zoo.load_url(url)
             print('=> loading pretrained model {}'.format(url))
             self.load_state_dict(pretrained_state_dict, strict=False)
@@ -310,9 +325,9 @@ resnet_spec = {18: (BasicBlock, [2, 2, 2, 2]),
 
 
 def get_pose_net(num_layers, heads, head_conv=256):
-  print("Res2NET")
-  block_class, layers = resnet_spec[num_layers]
+    print("Res2NET")
+    block_class, layers = resnet_spec[num_layers]
 
-  model = PoseResNet(block_class, layers, heads, head_conv=head_conv)
-  model.init_weights(num_layers)
-  return model
+    model = PoseResNet(block_class, layers, heads, head_conv=head_conv)
+    model.init_weights(num_layers)
+    return model
