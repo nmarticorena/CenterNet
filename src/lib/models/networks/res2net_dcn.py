@@ -40,7 +40,7 @@ def conv3x3(in_planes, out_planes, stride=1):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,baseWidth=4):
+    def __init__(self, inplanes, planes, stride=1, downsample=None,scale=4, baseWidth=26,stype='normal'):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
@@ -329,5 +329,5 @@ def get_pose_net(num_layers, heads, head_conv=256):
     block_class, layers = resnet_spec[num_layers]
 
     model = PoseResNet(block_class, layers, heads, head_conv=head_conv)
-    model.init_weights(num_layers)
+    #model.init_weights(num_layers)
     return model
