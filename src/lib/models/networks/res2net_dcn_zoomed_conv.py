@@ -30,27 +30,126 @@ model_urls = {
     'res2net101_26w_4s': 'http://data.kaizhao.net/projects/res2net/pretrained/res2net101_26w_4s-02a759a1.pth',
 }
 
+def make_divisible(v, divisor=8, min_value=1):
+    """
+    forked from slim:
+    https://github.com/tensorflow/models/blob/\
+    0344c5503ee55e24f0de7f37336a6e08f10976fd/\
+    research/slim/nets/mobilenet/mobilenet.py#L62-L69
+    """
+    if min_value is None:
+        min_value = divisor
+    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
+    # Make sure that round down does not go down by more than 10%.
+    if new_v < 0.9 * v:
+        new_v += divisor
+    return new_v
 
-def conv3x3(in_planes, out_planes, stride=1):
+class USConv2d(nn.Conv2d):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1,
+                 depthwise=False, bias=True, width_mult_list=[1.]):
+        super(USConv2d, self).__init__(
+            in_channels, out_channels,
+            kernel_size, stride=stride, padding=padding, dilation=dilation,
+            groups=groups, bias=bias)
+        self.depthwise = depthwise
+        self.in_channels_max = in_channels
+        self.out_channels_max = out_channels
+        self.width_mult_list = width_mult_list
+        self.ratio = (1., 1.)
+
+    def set_ratio(self, ratio):
+        self.ratio = ratio
+
+    def forward(self, input):
+        assert self.ratio[0] in self.width_mult_list, str(self.ratio[0]) + " in? " + str(self.width_mult_list)
+        self.in_channels = make_divisible(self.in_channels_max * self.ratio[0])
+        assert self.ratio[1] in self.width_mult_list, str(self.ratio[1]) + " in? " + str(self.width_mult_list)
+        self.out_channels = make_divisible(self.out_channels_max * self.ratio[1])
+        self.groups = self.in_channels if self.depthwise else 1
+        weight = self.weight[:self.out_channels, :self.in_channels, :, :]
+        if self.bias is not None:
+            bias = self.bias[:self.out_channels]
+        else:
+            bias = self.bias
+        y = nn.functional.conv2d(input, weight, bias, self.stride, self.padding, self.dilation, self.groups)
+        return y
+
+
+def conv3x3(in_planes, out_planes, stride=1,kernel_size=3):
     """3x3 convolution with padding"""
+    return USConv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+                     padding=1, bias=False,depthwise=True)
+
+class zoomedConv3x3(nn.Module):
+    def __init__(self, inplanes, planes, stride=1,kernel_size=3, padding=1, bias=False,dilation=1):
+        super(zoomedConv3x3, self).__init__()
+        self.stride=stride
+        self.dilation = dilation
+        if self.stride == 2: self.dilation = 1
+        self.ratio = (1., 1.)
+        #self.conv = nn.Conv2d(inplanes, planes,kernel_size=3,stride=1,groups=1,
+        #             padding=self.dilation,dilation=self.dilation, bias=bias)
+        self.conv= USConv2d(inplanes, planes,kernel_size=3,stride=1,groups=1,
+                    padding=self.dilation,dilation=self.dilation, bias=bias)
+        self.bn1 = nn.BatchNorm2d(planes,momentum=BN_MOMENTUM)
 
 
+    def forward(self, x):
+        out = torch.nn.functional.interpolate(x,size=(int(x.size(2))//2, int(x.size(3))//2), mode='bilinear',align_corners=True)
+        out = self.conv(out)
+        out = self.bn1(out)
+        if self.stride==1:
+            out = torch.nn.functional.interpolate(out,size=(int(x.size(2)), int(x.size(3))), mode='bilinear',align_corners=True)
+        return out
+
+class zoomedConv3x32X(nn.Module):
+    def __init__(self, inplanes, planes, stride=1,kernel_size=3, padding=1, bias=False,dilation=1):
+        super(zoomedConv3x32X, self).__init__()
+        self.stride=stride
+        self.dilation = dilation
+        if self.stride == 2: self.dilation = 1
+        self.ratio = (1., 1.)
+        self.conv = nn.Conv2d(inplanes, planes,kernel_size=3,stride=1,groups=1,
+                     padding=self.dilation,dilation=self.dilation, bias=bias)
+        self.bn1 = nn.BatchNorm2d(planes,momentum=BN_MOMENTUM)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, groups=1,
+                              padding=self.dilation, dilation=self.dilation, bias=bias)
+        self.bn2= nn.BatchNorm2d(planes,momentum=BN_MOMENTUM)
+        self.relu = nn.ReLU(inplace=True)
 
 
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-                     padding=1, bias=False)
+    def forward(self, x):
+        out = torch.nn.functional.interpolate(x,size=(int(x.size(2))//2, int(x.size(3))//2), mode='bilinear',align_corners=True)
+        out = self.conv(out)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        if self.stride == 1:
+            out = torch.nn.functional.interpolate(out,size=(int(x.size(2)), int(x.size(3))), mode='bilinear',align_corners=True)
+        out = self.relu(out)
+        return out
+
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,baseWidth=4):
+    def __init__(self, inplanes, planes, stride=1, downsample=None,baseWidth=4,stype=None,scale=None):
         super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
+        #if stride==1:
+        self.conv1 = zoomedConv3x3(inplanes, planes, stride)
+        self.conv2 = zoomedConv3x3(planes, planes)
+        #self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
+        """
+        else:
+            self.conv1 = conv3x3(inplanes,planes,stride)
+            self.conv2 = conv3x3(planes,planes)
+        """
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
+
+        #self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
         self.downsample = downsample
         self.stride = stride
 
@@ -58,11 +157,11 @@ class BasicBlock(nn.Module):
         residual = x
 
         out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
+        #out = self.bn1(out)
+        #out = self.relu(out)
 
         out = self.conv2(out)
-        out = self.bn2(out)
+        #out = self.bn2(out)
 
         if self.downsample is not None:
             residual = self.downsample(x)
@@ -93,7 +192,10 @@ class Bottleneck(nn.Module):
         bns = []
 
         for i in range(self.nums):
-            convs.append(nn.Conv2d(width, width, kernel_size=3, stride=stride, padding=1, bias=False))
+            if stride==1:
+                convs.append(zoomedConv3x3(width, width, kernel_size=3, stride=stride, padding=1, bias=False))
+            else:
+                convs.append(nn.Conv2d(width, width, kernel_size=3, stride=stride, padding=1, bias=False))
             bns.append(nn.BatchNorm2d(width, momentum=BN_MOMENTUM))
         self.convs = nn.ModuleList(convs)
         self.bns = nn.ModuleList(bns)
@@ -111,12 +213,17 @@ class Bottleneck(nn.Module):
 
     def forward(self, x):
         residual = x
-
+        """ TODO Revisar
         out = nn.functional.interpolate(x, size=(int(x.size(2))//2, int(x.size(3))//2), mode='bilinear')
         out = self.conv1(out)
         out = nn.functional.interpolate(out, size=(int(x.size(2)) * 2, int(x.size(3)) * 2), mode='bilinear')
         out = self.bn1(out)
         out = self.relu(out)
+        """
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
 
         spx = torch.split(out, self.width, 1)
         for i in range(self.nums):
@@ -125,7 +232,7 @@ class Bottleneck(nn.Module):
             else:
                 sp = sp + spx[i]
             sp = self.convs[i](sp)
-            sp = self.relu(self.bns[i](sp))
+            sp = self.relu(sp)
             if i == 0:
                 out = sp
             else:
@@ -331,9 +438,9 @@ resnet_spec = {18: (BasicBlock, [2, 2, 2, 2]),
 
 
 def get_pose_net(num_layers, heads, head_conv=256):
-    print("Res2NET")
+    print("Res2NetZoomed")
     block_class, layers = resnet_spec[num_layers]
 
     model = PoseResNet(block_class, layers, heads, head_conv=head_conv)
-    model.init_weights(num_layers)
+    #model.init_weights(num_layers)
     return model
