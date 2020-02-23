@@ -16,9 +16,10 @@ from datasets.dataset_factory import get_dataset
 from trains.train_factory import train_factory
 import time
 import numpy as np
+from torchsummary import summary
 
 
-def computeTime(model, device='cuda'):
+def computeTime(model, device='cpu'):
     inputs = torch.randn(10, 3, 224, 224)
     if device == 'cuda':
         model = model.cuda()
@@ -56,6 +57,9 @@ def main(opt):
   
   print('Creating model...')
   model = create_model(opt.arch, opt.heads, opt.head_conv)
+  print(next(model.parameters()).device)
+  model.to("cpu")
+  summary(model, (3, 224, 224),device="cpu")
   computeTime(model)
 
 if __name__ == '__main__':
