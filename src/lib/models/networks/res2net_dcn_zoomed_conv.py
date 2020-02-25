@@ -46,7 +46,7 @@ def make_divisible(v, divisor=8, min_value=1):
     return new_v
 
 class USConv2d(nn.Conv2d):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1,
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=1, dilation=1, groups=1,
                  depthwise=False, bias=True, width_mult_list=[1.]):
         super(USConv2d, self).__init__(
             in_channels, out_channels,
@@ -75,11 +75,19 @@ class USConv2d(nn.Conv2d):
         y = nn.functional.conv2d(input, weight, bias, self.stride, self.padding, self.dilation, self.groups)
         return y
 
+class conv3x3old(nn.Module):
+    def  __init__(self, in_planes, out_planes, kernel_size, stride=1):
+        super(conv3x3old,self).__init__()
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+                     padding=1, bias=False)
+    def forward(self,input):
+        out = self.conv(input)
+        return out
 
 def conv3x3(in_planes, out_planes, stride=1,kernel_size=3):
     """3x3 convolution with padding"""
-    return USConv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-                     padding=1, bias=False,depthwise=True)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+                     padding=1, bias=False)
 
 class zoomedConv3x3(nn.Module):
     def __init__(self, inplanes, planes, stride=1,kernel_size=3, padding=1, bias=False,dilation=1):
@@ -90,7 +98,7 @@ class zoomedConv3x3(nn.Module):
         self.ratio = (1., 1.)
         #self.conv = nn.Conv2d(inplanes, planes,kernel_size=3,stride=1,groups=1,
         #             padding=self.dilation,dilation=self.dilation, bias=bias)
-        self.conv= USConv2d(inplanes, planes,kernel_size=3,stride=1,groups=1,
+        self.conv= USConv2d(inplanes, planes,kernel_size=3,stride=stride,
                     padding=self.dilation,dilation=self.dilation, bias=bias)
         self.bn1 = nn.BatchNorm2d(planes,momentum=BN_MOMENTUM)
 
