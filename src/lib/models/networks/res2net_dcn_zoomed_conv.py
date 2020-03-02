@@ -96,10 +96,10 @@ class zoomedConv3x3(nn.Module):
         self.dilation = dilation
         if self.stride == 2: self.dilation = 1
         self.ratio = (1., 1.)
-        #self.conv = nn.Conv2d(inplanes, planes,kernel_size=3,stride=1,groups=1,
-        #             padding=self.dilation,dilation=self.dilation, bias=bias)
-        self.conv= USConv2d(inplanes, planes,kernel_size=3,stride=stride,
-                    padding=self.dilation,dilation=self.dilation, bias=bias)
+        self.conv = nn.Conv2d(inplanes, planes,kernel_size=3,stride=1,groups=1,
+                     padding=self.dilation,dilation=self.dilation, bias=bias)
+        #self.conv= USConv2d(inplanes, planes,kernel_size=3,stride=stride,
+        #            padding=self.dilation,dilation=self.dilation, bias=bias)
         self.bn1 = nn.BatchNorm2d(planes,momentum=BN_MOMENTUM)
 
 
@@ -202,9 +202,10 @@ class Bottleneck(nn.Module):
         for i in range(self.nums):
             if stride==1:
                 convs.append(zoomedConv3x3(width, width, kernel_size=3, stride=stride, padding=1, bias=False))
+                bns.append(None)
             else:
                 convs.append(nn.Conv2d(width, width, kernel_size=3, stride=stride, padding=1, bias=False))
-            bns.append(nn.BatchNorm2d(width, momentum=BN_MOMENTUM))
+                bns.append(nn.BatchNorm2d(width, momentum=BN_MOMENTUM))
         self.convs = nn.ModuleList(convs)
         self.bns = nn.ModuleList(bns)
 
@@ -240,7 +241,10 @@ class Bottleneck(nn.Module):
             else:
                 sp = sp + spx[i]
             sp = self.convs[i](sp)
-            sp = self.relu(sp)
+            if self.bns[i]!=None:
+                sp = self.relu(self.bns[i](sp))
+            else:
+                sp= self.relu(sp)
             if i == 0:
                 out = sp
             else:
@@ -408,17 +412,23 @@ class PoseResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
+        #print(x.shape)
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)
+
+        #print (x.shape)
 
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
 
+        #print (self.heads)
+        #print(x.shape)
         x = self.deconv_layers(x)
+        #print(x.shape)
         ret = {}
         for head in self.heads:
             ret[head] = self.__getattr__(head)(x)
