@@ -1,7 +1,8 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
+from PIL import Image
+import torchvision.transforms.functional as TF
 import _init_paths
 
 import os
@@ -18,18 +19,32 @@ import time
 import numpy as np
 from torchsummary import summary
 
+factor = 8
 
-def computeTime(model, device='cpu'):
-    inputs = torch.randn(10, 3, 224, 224)
+def computeTime(model, device='cuda'):
+    inputs = torch.randn(1, 3, 640,480)
     if device == 'cuda':
         model = model.cuda()
         inputs = inputs.cuda()
 
+    #module = torch.jit.trace(model, inputs)
+    #m = torch.jit.script(model)
+    #torch.jit.save(m,'test.pt')
     model.eval()
 
     i = 0
     time_spent = []
-    while i < 100:
+    lista=[]
+
+    for x in os.listdir('../data/coco/test2017/'):
+        lista.append(x)
+
+    while i < 2:
+        #if device == 'cuda':
+            #image= Image.open('../data/coco/test2017/{}'.format(lista[7]))
+            #inputs=TF.to_tensor(image)
+            #inputs.unsqueeze_(0)
+            #inputs=inputs.cuda()
         start_time = time.time()
         with torch.no_grad():
             _ = model(inputs)
@@ -59,7 +74,8 @@ def main(opt):
   model = create_model(opt.arch, opt.heads, opt.head_conv)
   print(next(model.parameters()).device)
   model.to("cpu")
-  summary(model, (3, 224, 224),device="cpu")
+  #summary(model, (3, factor*224, 224*factor),device="cpu")
+
   computeTime(model)
 
 if __name__ == '__main__':
