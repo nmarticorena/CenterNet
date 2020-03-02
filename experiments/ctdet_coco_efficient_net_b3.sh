@@ -1,6 +1,6 @@
 cd src
 # train
-python main.py ctdet --exp_id efficient_net_b3 --arch efficientNetb_3 --batch_size 114 --master_batch 18 --lr 5e-4 --gpus 0,1,2,3 --num_workers 16 --head_conv 256
+python main.py ctdet --exp_id efficient_net_b3 --arch efficientNetb_3 --batch_size 96 --master_batch 5  --lr 3.75e-4 --gpus 0,1,2,3,4,5,6,7 --num_workers 16 --head_conv 256
 # test
 python test.py ctdet --exp_id efficient_net_b3 --arch efficientNetb_3 --keep_res --resume
 # flip test
