@@ -287,7 +287,7 @@ class DLA(nn.Module):
         y = []
         x = self.base_layer(x)
         for i in range(6):
-            x = getattr(self, 'level{}'.format(i))(x)
+            x = getattr(self, 'level{}'.format(str(i)))(x)
             y.append(x)
         return y
 
