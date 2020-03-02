@@ -14,6 +14,7 @@ from .networks.resnet_dcn import get_pose_net as get_pose_net_dcn
 from .networks.res2net_dcn import get_pose_net as get_pose_2net_dcn
 from .networks.large_hourglass import get_large_hourglass_net
 from .networks.res2net_dcn_zoomed_conv import  get_pose_net as get_pose_2net_zoomed_dcn
+from .networks.efficent_net import get_pose_net as get_pose_efficient_net
 
 _model_factory = {
   'res': get_pose_net, # default Resnet with deconv
@@ -22,7 +23,8 @@ _model_factory = {
   'resdcn': get_pose_net_dcn,
   'hourglass': get_large_hourglass_net,
   'res2dcn': get_pose_2net_dcn,
-  'res2dcnZoomed': get_pose_2net_zoomed_dcn
+  'res2dcnZoomed': get_pose_2net_zoomed_dcn,
+  'efficientNetb': get_pose_efficient_net
 }
 
 def create_model(arch, heads, head_conv):
