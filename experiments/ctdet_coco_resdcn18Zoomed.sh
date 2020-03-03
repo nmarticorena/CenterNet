@@ -1,6 +1,6 @@
 cd src
 # train
-python main.py ctdet --exp_id coco_res2dcnZoomed18 --arch res2dcnZoomed_18 --batch_size 114 --master_batch 18 --lr 5e-4 --gpus 0,1,2,3 --num_workers 16
+python main.py ctdet --exp_id coco_res2dcnZoomed18 --arch res2dcnZoomed_18 --resume --batch_size 114 --master_batch 18 --lr 5e-4 --gpus 0,1,2,3,4,5,6,7 --num_workers 16
 # test
 python test.py ctdet --exp_id coco_res2dcnZoomed18 --arch res2dcnZoomed_18 --keep_res --resume
 # flip test
