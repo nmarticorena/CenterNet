@@ -46,7 +46,10 @@ class EfficientNetSeg(nn.Module):
         super(EfficientNetSeg, self).__init__()
         self.heads = heads
         print (heads)
-        self.inplanes = 1536
+        if base_name == 0:
+            self.inplanes = 1280  # Case for efficient net b0
+        elif base_name == 3:
+            self.inplanes = 1536  # Case for efficient net b3
         self.deconv_with_bias = False
 
         print('efficientnet-b{}'.format(base_name))
