@@ -61,9 +61,16 @@ class EfficientNetSeg(nn.Module):
         self.model = EfficientNet.from_pretrained('efficientnet-b{}'.format(base_name))
         self.deconv_layers = self._make_deconv_layer(
             3,
-            [768, 384, 64],
+            [512, 170, 64],
             [4,4, 4],
         )
+        """
+        self.deconv_layers = self._make_deconv_layer(
+            3,
+            [768, 384, 64],
+            [4, 4, 4],
+        )
+        """
         for head in self.heads:
             classes = self.heads[head]
             if head_conv > 0:
